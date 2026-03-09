@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>محول النص إلى صوت</title>
+    <!-- استدعاء مكتبة Gradio Client -->
+    <script type="module" src="https://cdn.jsdelivr.net/npm/@gradio/client@0.1.4/dist/index.min.js"></script>
+    <style>
+        :root { --primary: #2563eb; --primary-dark: #1d4ed8; --bg: #f8fafc; --card-bg: #ffffff; --text: #1e293b; --border: #e2e8f0; }
+        body { font-family: 'Segoe UI', Tahoma, sans-serif; background-color: var(--bg); color: var(--text); margin: 0; padding: 20px; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        .container { background-color: var(--card-bg); width: 100%; max-width: 600px; padding: 30px; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); }
+        h1 { text-align: center; margin-bottom: 30px; color: var(--primary); }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; font-weight: 600; }
+        textarea, select { width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 16px; box-sizing: border-box; }
+        textarea { min-height: 120px; }
+        .speed-control { display: flex; align-items: center; gap: 10px; }
+        input[type="range"] { flex-grow: 1; }
+        .speed-value { font-weight: bold; min-width: 50px; text-align: center; background: #f1f5f9; padding: 5px; border-radius: 4px; }
+        .btn { width: 100%; padding: 14px; background-color: var(--primary); color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; margin-top: 10px; }
+        .btn:disabled { background-color: #94a3b8; cursor: not-allowed; }
+        .download-btn { background-color: #10b981; text-decoration: none; display: block; text-align: center; }
+        #status { text-align: center; margin-top: 15px; font-size: 14px; color: #64748b; }
+        .audio-player { margin-top: 25px; display: none; }
+        audio { width: 100%; margin-top: 10px; }
+        .error { color: #b91c1c; background: #fee2e2; padding: 10px; border-radius: 5px; margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>محول النص إلى صوت</h1>
+    
+    <div class="form-group">
+        <label>أدخل النص:</label>
+        <textarea id="text-input">مرحبا بك في خدمة تحويل النص إلى صوت</textarea>
+    </div>
+
+    <div class="form-group">
+        <label>اختر الصوت:</label>
+        <select id="voice-select">
+            <option value="ar-EG-SalmaNeural">Salma (مصر)</option>
+            <option value="ar-SA-HamedNeural">Hamed (السعودية)</option>
+            <option value="ar-AE-FatimaNeural">Fatima (الإمارات)</option>
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label>سرعة الصوت:</label>
+        <div class="speed-control">
+            <input type="range" id="speed-range" min="-100" max="100" value="0">
+            <span id="speed-value" class="speed-value">0%</span>
+        </div>
+    </div>
+
+    <button id="convert-btn" class="btn">تحويل إلى صوت</button>
+    
+    <div id="status"></div>
+
+    <div id="audio-container" class="audio-player">
+        <audio id="audio-player" controls></audio>
+        <a id="download-link" class="btn download-btn" download="audio.mp3">تحميل الملف</a>
+    </div>
+</div>
+
+<script type="module">
+    import { client } from "https://cdn.jsdelivr.net/npm/@gradio/client@0.1.4/dist/index.min.js";
+
+    // رابط مساحتك
+    const SPACE_URL = "https://huggingface.co/spaces/moka534/USER-SPACE-NAME";
+
+    const textInput = document.getElementById('text-input');
+    const voiceSelect = document.getElementById('voice-select');
+    const speedRange = document.getElementById('speed-range');
+    const speedValue = document.getElementById('speed-value');
+    const convertBtn = document.getElementById('convert-btn');
+    const statusDiv = document.getElementById('status');
+    const audioContainer = document.getElementById('audio-container');
+    const audioPlayer = document.getElementById('audio-player');
+    const downloadLink = document.getElementById('download-link');
+
+    speedRange.addEventListener('input', () => {
+        const val = speedRange.value;
+        speedValue.textContent = val >= 0 ? `+${val}%` : `${val}%`;
+    });
+
+    convertBtn.addEventListener('click', async () => {
+        const text = textInput.value.trim();
+        if (!text) { alert('الرجاء إدخال نص'); return; }
+
+        const speed = parseInt(speedRange.value);
+        const voice = voiceSelect.value;
+
+        convertBtn.disabled = true;
+        convertBtn.textContent = "جاري التحويل...";
+        statusDiv.innerHTML = "يتم الاتصال بالخادم...";
+        audioContainer.style.display = 'none';
+
+        try {
+            // الاتصال بالمساحة باستخدام Gradio Client
+            const app = await client(SPACE_URL);
+            
+            // إرسال البيانات
+            // ملاحظة: يجب مطابقة الترتيب مع ملف app.py [text, voice, speed]
+            const result = await app.predict("/predict", [
+                text, 
+                voice, 
+                speed
+            ]);
+
+            // result.data يحتوي على النتيجة
+            const audioData = result.data;
+
+            if (audioData) {
+                // Gradio Client يعيد البيانات عادة ككائن يحتوي على url
+                // أو نص لمسار الملف
+                let audioUrl;
+                
+                if (typeof audioData === 'object' && audioData.url) {
+                    audioUrl = audioData.url;
+                } else if (typeof audioData === 'string') {
+                    // إذا كان نصاً، نحتاج لتحويله لرابط كامل
+                    audioUrl = `${SPACE_URL}/file=${audioData}`;
+                } else {
+                    // في بعض الأحيان يعيد كائن { name: 'file.mp3', data: blob... }
+                    // لكن هنا سنحاول الرابط المباشر
+                    audioUrl = audioData;
+                }
+
+                // جلب الملف وتحويله لـ Blob
+                statusDiv.innerHTML = "جاري تحميل الصوت...";
+                const response = await fetch(audioUrl);
+                const blob = await response.blob();
+                const blobUrl = URL.createObjectURL(blob);
+
+                audioPlayer.src = blobUrl;
+                downloadLink.href = blobUrl;
+                audioContainer.style.display = 'block';
+                statusDiv.innerHTML = "<span style='color:green'>تم بنجاح!</span>";
+                audioPlayer.play();
+            } else {
+                throw new Error("لم يتم إرجاع صوت");
+            }
+
+        } catch (error) {
+            console.error("Full Error:", error);
+            statusDiv.innerHTML = `<div class="error">حدث خطأ: تأكد من أن المساحة تعمل وحاول مرة أخرى.<br>التفاصيل: ${error.message}</div>`;
+        } finally {
+            convertBtn.disabled = false;
+            convertBtn.textContent = "تحويل إلى صوت";
+        }
+    });
+</script>
+
+</body>
+</html>
